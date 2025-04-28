@@ -1,133 +1,246 @@
-# 安装依赖 pip3 install requests html5lib bs4 schedule
 import os
 import requests
 import json
 from bs4 import BeautifulSoup
+import logging
+import datetime
 
-# 从测试号信息获取
-appID = os.environ.get("APP_ID")
-appSecret = os.environ.get("APP_SECRET")
-# 收信人ID即 用户列表中的微信号
-openId = os.environ.get("OPEN_ID")
-# 天气预报模板ID
-weather_template_id = os.environ.get("TEMPLATE_ID")
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# 配置信息
+Configure = {
+    "APP_ID": os.environ.get("APP_ID"),
+    "APP_SECRET": os.environ.get("APP_SECRET"),
+    "OPEN_ID": os.environ.get("OPEN_ID"),
+    "TEMPLATE_ID": os.environ.get("TEMPLATE_ID"),
+    "CITY": "吉安"
+}
 
 def get_weather(my_city):
-    urls = ["http://www.weather.com.cn/textFC/hb.shtml",
+    """
+    从中国天气网获取指定城市的天气信息（详细文档：http://www.weather.com.cn）
+    Args:
+        my_city (str): 要查询的城市名称
+    Returns:
+        tuple: (城市名, 温度, 天气类型, 风力) 或 None
+    """
+    try:
+        urls = [
+            "http://www.weather.com.cn/textFC/hb.shtml",
             "http://www.weather.com.cn/textFC/db.shtml",
             "http://www.weather.com.cn/textFC/hd.shtml",
             "http://www.weather.com.cn/textFC/hz.shtml",
             "http://www.weather.com.cn/textFC/hn.shtml",
             "http://www.weather.com.cn/textFC/xb.shtml",
             "http://www.weather.com.cn/textFC/xn.shtml"
-            ]
-    for url in urls:
-        resp = requests.get(url)
-        text = resp.content.decode("utf-8")
-        soup = BeautifulSoup(text, 'html5lib')
-        div_conMidtab = soup.find("div", class_="conMidtab")
-        tables = div_conMidtab.find_all("table")
-        for table in tables:
-            trs = table.find_all("tr")[2:]
-            for index, tr in enumerate(trs):
-                tds = tr.find_all("td")
-                # 这里倒着数，因为每个省会的td结构跟其他不一样
-                city_td = tds[-8]
-                this_city = list(city_td.stripped_strings)[0]
-                if this_city == my_city:
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.3',
+            'Referer': 'http://www.weather.com.cn/'
+        }
+        
+        for url in urls:
+            try:
+                resp = requests.get(url, headers=headers, timeout=5)
+                resp.raise_for_status()
+                text = resp.content.decode("utf-8")
+                soup = BeautifulSoup(text, 'html5lib')
+                div_conMidtab = soup.find("div", class_="conMidtab")
+                if div_conMidtab is None:
+                    continue
+                tables = div_conMidtab.find_all("table")
+                for table in tables:
+                    trs = table.find_all("tr")[2:]  # 跳过前两行
+                    for tr in trs:
+                        tds = tr.find_all("td")
+                        city_td = tds[-8]
+                        this_city = list(city_td.stripped_strings)[0]
+                        if this_city == my_city:
+                            high_temp = list(tds[-5].stripped_strings)[0] if tds[-5] else '-'
+                            low_temp = list(tds[-2].stripped_strings)[0] if tds[-2] else '-'
+                            weather_typ_day = list(tds[-7].stripped_strings)[0] if tds[-7] else '-'
+                            weather_type_night = list(tds[-4].stripped_strings)[0] if tds[-4] else '-'
+                            wind_day = list(tds[-6].stripped_strings) if tds[-6] else []
+                            wind_day = wind_day[0] + wind_day[1] if len(wind_day) > 1 else ''
+                            wind_night = list(tds[-3].stripped_strings) if tds[-3] else []
+                            wind_night = wind_night[0] + wind_night[1] if len(wind_night) > 1 else ''
 
-                    high_temp_td = tds[-5]
-                    low_temp_td = tds[-2]
-                    weather_type_day_td = tds[-7]
-                    weather_type_night_td = tds[-4]
-                    wind_td_day = tds[-6]
-                    wind_td_day_night = tds[-3]
+                            temp = f"{low_temp}——{high_temp}摄氏度" if high_temp != "-" else f"{low_temp}摄氏度"
+                            weather_typ = weather_typ_day if weather_typ_day != "-" else weather_type_night
+                            wind = wind_day if wind_day != "--" else wind_night
 
-                    high_temp = list(high_temp_td.stripped_strings)[0]
-                    low_temp = list(low_temp_td.stripped_strings)[0]
-                    weather_typ_day = list(weather_type_day_td.stripped_strings)[0]
-                    weather_type_night = list(weather_type_night_td.stripped_strings)[0]
-
-                    wind_day = list(wind_td_day.stripped_strings)[0] + list(wind_td_day.stripped_strings)[1]
-                    wind_night = list(wind_td_day_night.stripped_strings)[0] + list(wind_td_day_night.stripped_strings)[1]
-
-                    # 如果没有白天的数据就使用夜间的
-                    temp = f"{low_temp}——{high_temp}摄氏度" if high_temp != "-" else f"{low_temp}摄氏度"
-                    weather_typ = weather_typ_day if weather_typ_day != "-" else weather_type_night
-                    wind = f"{wind_day}" if wind_day != "--" else f"{wind_night}"
-                    return this_city, temp, weather_typ, wind
-
+                            return (this_city, temp, weather_typ, wind)
+            except requests.exceptions.RequestException as e:
+                logging.error(f"获取天气数据失败：{e}", exc_info=True)
+        return None
+    except Exception as e:
+        logging.error(f"天气获取逻辑错误：{e}", exc_info=True)
+        return None
 
 def get_access_token():
-    # 获取access token的url
-    url = 'https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={}&secret={}' \
-        .format(appID.strip(), appSecret.strip())
-    response = requests.get(url).json()
-    print(response)
-    access_token = response.get('access_token')
-    return access_token
-
+    """
+    获取微信公众号access_token
+    Returns:
+        str: access_token 或 None
+    """
+    try:
+        app_id = Configure["APP_ID"]
+        app_secret = Configure["APP_SECRET"]
+        if not app_id or not app_secret:
+            logging.error("未配置APP_ID或APP_SECRET")
+            return None
+        url = f'https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={app_id}&secret={app_secret}'
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        result = response.json()
+        if 'errcode' in result and result['errcode'] != 0:
+            logging.error(f"获取access_token失败：{result['errmsg']}")
+            return None
+        return result.get('access_token')
+    except requests.exceptions.RequestException as e:
+        logging.error(f"获取access_token失败：{e}", exc_info=True)
+        return None
+    except Exception as e:
+        logging.error(f"获取access_token逻辑错误：{e}", exc_info=True)
+        return None
 
 def get_daily_love():
-    # 每日一句情话
-    url = "https://api.lovelive.tools/api/SweetNothings/Serialization/Json"
-    r = requests.get(url)
-    all_dict = json.loads(r.text)
-    sentence = all_dict['returnObj'][0]
-    daily_love = sentence
-    return daily_love
+    """
+    获取每日情话
+    Returns:
+        str: 情话内容
+    """
+    try:
+        url = "https://api.lovelive.tools/api/SweetNothings/Serialization/Json"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ',
+            'Referer': 'https://api.lovelive.tools/'
+        }
+        response = requests.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        sentence = data.get('returnObj', [])[0] if data.get('returnObj', []) else ""
+        daily_love = sentence if sentence else "每天都要开心哦！"
+        return daily_love
+    except requests.exceptions.RequestException as e:
+        logging.error(f"获取情话失败：{e}", exc_info=True)
+        return "每天都要开心哦！"
+    except Exception as e:
+        logging.error(f"情话获取逻辑错误：{e}", exc_info=True)
+        return "每天都要开心哦！"
 
-
-def send_weather(access_token, weather):
-    # touser 就是 openID
-    # template_id 就是模板ID
-    # url 就是点击模板跳转的url
-    # data就按这种格式写，time和text就是之前{{time.DATA}}中的那个time，value就是你要替换DATA的值
-
-    import datetime
-    today = datetime.date.today()
-    today_str = today.strftime("%Y年%m月%d日")
-
-    body = {
-        "touser": openId.strip(),
-        "template_id": weather_template_id.strip(),
-        "url": "https://weixin.qq.com",
-        "data": {
-            "date": {
-                "value": today_str
-            },
-            "region": {
-                "value": weather[0]
-            },
-            "weather": {
-                "value": weather[2]
-            },
-            "temp": {
-                "value": weather[1]
-            },
-            "wind_dir": {
-                "value": weather[3]
-            },
-            "today_note": {
-                "value": get_daily_love()
+def send_weather(access_token, weather_info):
+    """
+    发送天气预报
+    Args:
+        access_token (str): 微信公众号access_token
+        weather_info (tuple): 天气信息（城市名, 温度, 天气类型, 风力）
+    Returns:
+        bool: 是否成功发送
+    """
+    try:
+        if not weather_info:
+            logging.error("天气信息为空")
+            return False
+        today = datetime.date.today()
+        today_str = today.strftime("%Y年%m月%d日")
+        body = {
+            "touser": Configure["OPEN_ID"],
+            "template_id": Configure["TEMPLATE_ID"],
+            "url": "https://weixin.qq.com",
+            "data": {
+                "date": {
+                    "value": today_str
+                },
+                "region": {
+                    "value": weather_info[0]
+                },
+                "weather": {
+                    "value": weather_info[2]
+                },
+                "temp": {
+                    "value": weather_info[1]
+                },
+                "wind_dir": {
+                    "value": weather_info[3]
+                },
+                "today_note": {
+                    "value": get_daily_love()
+                }
             }
         }
-    }
-    url = 'https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={}'.format(access_token)
-    print(requests.post(url, json.dumps(body)).text)
+        if not access_token:
+            logging.error("access_token为空")
+            return False
+        url = f'https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={access_token}'
+        response = requests.post(url, json=body, timeout=10)
+        response.raise_for_status()
+        result = response.json()
+        if result.get('errcode') == 0:
+            logging.info("天气预报发送成功")
+            return True
+        else:
+            logging.error(f"发送失败：{result.get('errmsg', '未知错误')}")
+            return False
+    except requests.exceptions.RequestException as e:
+        logging.error(f"发送天气预报失败：{e}", exc_info=True)
+        return False
+    except Exception as e:
+        logging.error(f"发送天气预报逻辑错误：{e}", exc_info=True)
+        return False
 
+def weather_report():
+    """
+    主函数，执行完整的天气报告流程
+    """
+    try:
+        logging.info("开始执行天气报告任务")
+        # 检查配置
+        for key, value in Configure.items():
+            if not value:
+                logging.error(f"配置项{key}未设置")
+                return
+        
+        # 1. 获取天气信息
+        weather_info = get_weather(Configure["CITY"])
+        if not weather_info:
+            logging.error("无法获取天气信息")
+            return
+        logging.info(f"获取到天气信息：{weather_info}")
 
+        # 2. 获取access_token
+        access_token = get_access_token()
+        if not access_token:
+            logging.error("无法获取access_token")
+            return
 
-def weather_report(this_city):
-    # 1.获取access_token
-    access_token = get_access_token()
-    # 2. 获取天气
-    weather = get_weather(this_city)
-    print(f"天气信息： {weather}")
-    # 3. 发送消息
-    send_weather(access_token, weather)
+        # 3. 发送天气预报
+        success = send_weather(access_token, weather_info)
+        if success:
+            logging.info("天气预报发送完成")
+        else:
+            logging.error("天气预报发送失败")
+    except Exception as e:
+        logging.error(f"主程序错误：{e}", exc_info=True)
 
-
+def scheduler():
+    """
+    定时任务调度函数
+    """
+    weather_report()
+    # 使用schedule库可以进行定时任务设置
+    # 示例：
+    # schedule.every().day.at("08:00").do(job)  # 每天8点执行
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)
 
 if __name__ == '__main__':
-    weather_report("吉安")
+    weather_report()
+
