@@ -23,7 +23,7 @@ Configure = {
 
 def get_weather(my_city):
     """
-    从中国天气网获取指定城市的天气信息（详细文档：http://www.weather.com.cn）
+    从中国天气网获取指定城市的天气信息
     Args:
         my_city (str): 要查询的城市名称
     Returns:
@@ -229,18 +229,5 @@ def weather_report():
     except Exception as e:
         logging.error(f"主程序错误：{e}", exc_info=True)
 
-def scheduler():
-    """
-    定时任务调度函数
-    """
-    weather_report()
-    # 使用schedule库可以进行定时任务设置
-    # 示例：
-    # schedule.every().day.at("08:00").do(job)  # 每天8点执行
-    # while True:
-    #     schedule.run_pending()
-    #     time.sleep(1)
-
 if __name__ == '__main__':
     weather_report()
-
